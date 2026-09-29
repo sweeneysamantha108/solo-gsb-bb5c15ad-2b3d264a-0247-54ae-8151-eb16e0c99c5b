@@ -122,6 +122,88 @@ test("nested pointers inside arrays of objects are reported", () => {
   assert.deepEqual(samples[1].affectedPointers, ["/properties/list/items/properties/j"]);
 });
 
+test("multiple array objects in one sample count separately for required", () => {
+  // Sample 0 contributes TWO objects at list/items, one lacking "b". Removing
+  // it leaves the single object of sample 1, where "b" is required.
+  const { samples } = analyzeContribution([
+    { list: [{ a: 1 }, { a: 2, b: 3 }] },
+    { list: [{ a: 4, b: 5 }] },
+  ]);
+  assert.equal(samples[0].verdict, "critical");
+  assert.deepEqual(samples[0].affectedPointers, [
+    "/properties/list/items/properties/b",
+  ]);
+  // Sample 1's two occurrences of "b" are redundant with sample 0's own "b":
+  // the field stays present and optional however it is removed.
+  assert.equal(samples[1].verdict, "redundant");
+  assert.deepEqual(samples[1].affectedPointers, []);
+});
+
+test("required flips the other way when redundant array objects leave", () => {
+  // Two objects in sample 1 both carry "b"; sample 0's only object lacks it.
+  //  - removing sample 0: two objects remain, both carrying "b" -> required
+  //  - removing sample 1: one object remains without "b" -> the field vanishes
+  // Either way the same field pointer is reported.
+  const { samples } = analyzeContribution([
+    { list: [{ a: 1 }] },
+    { list: [{ a: 2, b: 3 }, { a: 4, b: 5 }] },
+  ]);
+  assert.equal(samples[0].verdict, "critical");
+  assert.equal(samples[1].verdict, "critical");
+  assert.deepEqual(samples[0].affectedPointers, [
+    "/properties/list/items/properties/b",
+  ]);
+  assert.deepEqual(samples[1].affectedPointers, [
+    "/properties/list/items/properties/b",
+  ]);
+});
+
+test("a unique field inside one array object reports the nested pointer", () => {
+  const { samples } = analyzeContribution([
+    { list: [{ k: 1 }, { k: 2 }] },
+    { list: [{ k: 3, j: "a" }, { k: 4 }] },
+  ]);
+  assert.equal(samples[1].verdict, "critical");
+  assert.deepEqual(samples[1].affectedPointers, [
+    "/properties/list/items/properties/j",
+  ]);
+  assert.equal(samples[0].verdict, "redundant");
+});
+
+test("nested items disappearing still yields the exact items pointer", () => {
+  // The only element evidence at list/items/items comes from sample 0;
+  // removing it drops the nested items constraint (not a vague ancestor).
+  const { samples } = analyzeContribution([
+    { list: [[1, 2]] },
+    { list: [[]] },
+  ]);
+  assert.equal(samples[0].verdict, "critical");
+  assert.deepEqual(samples[0].affectedPointers, ["/properties/list/items/items"]);
+  // The empty inner array carries no element evidence of its own.
+  assert.equal(samples[1].verdict, "redundant");
+});
+
+test("integer vs decimal narrowing inside nested items is flagged", () => {
+  const { samples } = analyzeContribution([
+    { xs: [1, 2, 3] },
+    { xs: [4, 5] },
+    { xs: [1.5] },
+  ]);
+  assert.equal(samples[2].verdict, "critical"); // number -> integer on removal
+  assert.deepEqual(samples[2].affectedPointers, ["/properties/xs/items"]);
+  assert.equal(samples[0].verdict, "redundant");
+  assert.equal(samples[1].verdict, "redundant");
+});
+
+test("empty array never creates an items constraint at any depth", () => {
+  const { summary, samples } = analyzeContribution([
+    { xs: [], nested: { ys: [] } },
+    { xs: [], nested: { ys: [] } },
+  ]);
+  assert.deepEqual(summary, { critical: 0, redundant: 2 });
+  assert.deepEqual(samples[0].affectedPointers, []);
+});
+
 test("each affected rule is counted exactly once", () => {
   // Removing sample 1 changes "a" (type union) and "b" (required flip):
   // two distinct pointers, no duplicates.
