@@ -122,6 +122,106 @@ test("nested pointers inside arrays of objects are reported", () => {
   assert.deepEqual(samples[1].affectedPointers, ["/properties/list/items/properties/j"]);
 });
 
+test("multiple array objects of one sample are counted separately (required flip)", () => {
+  // Sample 0 mixes one element carrying "k" with one empty element; sample 1
+  // contributes one element carrying "k". A per-sample boolean count would
+  // wrongly see "k" as present in every sample (hence required already) and
+  // call sample 1 redundant; the real rule counts object INSTANCES
+  // (presence 2 of 3 -> optional), and removing sample 0 flips it to required.
+  const { summary, samples } = analyzeContribution([
+    { list: [{ k: 1 }, {}] },
+    { list: [{ k: 2 }] },
+  ]);
+  assert.equal(samples[0].verdict, "critical"); // without [{},{k:1}]: k required
+  assert.deepEqual(samples[0].affectedPointers, ["/properties/list/items/properties/k"]);
+  assert.equal(samples[1].verdict, "redundant"); // remainder still has a k-less element
+  assert.deepEqual(samples[1].affectedPointers, []);
+  assert.deepEqual(summary, { critical: 1, redundant: 1 });
+});
+
+test("a unique field spread over one sample's several elements reports one pointer", () => {
+  // Sample 0 provides the only two "j" object elements (counted separately);
+  // removing it drops the field entirely -> one field-root pointer, not two.
+  const { samples } = analyzeContribution([
+    { list: [{ k: 1, j: "a" }, { k: 2, j: "b" }] },
+    { list: [{ k: 3 }, {}] },
+  ]);
+  assert.equal(samples[0].verdict, "critical");
+  assert.deepEqual(samples[0].affectedPointers, ["/properties/list/items/properties/j"]);
+  // Sample 1's empty element is one of four instances; removing it (and {k:3})
+  // leaves two instances carrying both fields -> both flip to required.
+  assert.equal(samples[1].verdict, "critical");
+  assert.deepEqual(samples[1].affectedPointers, [
+    "/properties/list/items/properties/j",
+    "/properties/list/items/properties/k",
+  ]);
+});
+
+test("empty arrays contribute no items evidence even alongside non-empty samples", () => {
+  // The empty array supplies no element observations, so removing it changes
+  // nothing; removing the only non-empty sample drops the items constraint.
+  const { samples } = analyzeContribution([
+    { list: [1, 2] },
+    { list: [] },
+    { list: [] },
+  ]);
+  assert.equal(samples[0].verdict, "critical");
+  assert.deepEqual(samples[0].affectedPointers, ["/properties/list/items"]);
+  assert.equal(samples[1].verdict, "redundant");
+  assert.equal(samples[2].verdict, "redundant");
+});
+
+test("nested items constraint disappears at the nested items pointer", () => {
+  // Both samples feed the OUTER items node (one element each), so it survives
+  // any single removal; only sample 0's inner arrays carry elements, so its
+  // removal empties exactly the nested items evidence.
+  const { samples } = analyzeContribution([
+    { list: [[1, 2]] },
+    { list: [[]] },
+  ]);
+  assert.equal(samples[0].verdict, "critical");
+  assert.deepEqual(samples[0].affectedPointers, ["/properties/list/items/items"]);
+  assert.equal(samples[1].verdict, "redundant");
+  assert.deepEqual(samples[1].affectedPointers, []);
+});
+
+test("integer-to-number widening inside array items narrows back on removal", () => {
+  // Item observations: integers from samples 0/1, one decimal from sample 2.
+  const { samples } = analyzeContribution([
+    { xs: [1, 2] },
+    { xs: [3] },
+    { xs: [1.5] },
+  ]);
+  assert.equal(samples[0].verdict, "redundant"); // sample 1's integer + decimal stay "number"
+  assert.equal(samples[1].verdict, "redundant");
+  assert.equal(samples[2].verdict, "critical"); // without the decimal, items narrows to integer
+  assert.deepEqual(samples[2].affectedPointers, ["/properties/xs/items"]);
+});
+
+test("null item evidence and nested required flips use exact nested pointers", () => {
+  const { samples } = analyzeContribution([
+    { list: [{ a: 1 }] },
+    { list: [{ a: null }] },
+    { list: [{}] },
+  ]);
+  // Removing sample 2: "a" present in every remaining element -> required.
+  assert.equal(samples[2].verdict, "critical");
+  assert.deepEqual(samples[2].affectedPointers, ["/properties/list/items/properties/a"]);
+  // Removing sample 1: the only null evidence vanishes (union narrows).
+  assert.equal(samples[1].verdict, "critical");
+  assert.deepEqual(samples[1].affectedPointers, ["/properties/list/items/properties/a"]);
+});
+
+test("key and element order across many samples creates no false differences", () => {
+  const samples = [];
+  for (let i = 0; i < 25; i++) {
+    samples.push(i % 2 === 0 ? { z: i, a: [i, "x", null], m: true } : { a: [null, "y"], m: false, z: i + 0.5 });
+  }
+  const { summary } = analyzeContribution(samples);
+  // Every rule type and field survives any single removal; nothing is unique.
+  assert.deepEqual(summary, { critical: 0, redundant: 25 });
+});
+
 test("each affected rule is counted exactly once", () => {
   // Removing sample 1 changes "a" (type union) and "b" (required flip):
   // two distinct pointers, no duplicates.

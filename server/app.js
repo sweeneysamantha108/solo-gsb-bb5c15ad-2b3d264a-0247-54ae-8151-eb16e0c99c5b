@@ -145,8 +145,9 @@ function createApp() {
     }
   });
 
-  // Leave-one-out contribution analysis: re-infer the schema without each
-  // sample and classify it critical/redundant by normalized rule diffs.
+  // Leave-one-out contribution analysis: aggregate per-sample evidence
+  // (types, field presence, array elements) once, then subtract each
+  // sample's contribution and classify it critical/redundant by rule diffs.
   app.post("/api/contribution", (req, res) => {
     const { samples } = req.body || {};
     try {
