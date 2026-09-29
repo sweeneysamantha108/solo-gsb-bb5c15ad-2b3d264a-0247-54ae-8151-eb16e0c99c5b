@@ -1,0 +1,14 @@
+{
+  "name": "json-contract-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turn scattered JSON samples into a JSON Schema 2020-12 contract (Express + React + Ajv)",
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "node server/index.js",
+    "test": "npm --prefix server test && npm --prefix client test"
+  }
+}

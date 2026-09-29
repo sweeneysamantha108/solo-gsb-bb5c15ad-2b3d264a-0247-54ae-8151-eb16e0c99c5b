@@ -1,0 +1,16 @@
+{
+  "name": "json-contract-studio-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Infers JSON Schema 2020-12 contracts from sample payloads and validates new ones",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "express": "^4.21.0"
+  }
+}
